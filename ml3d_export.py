@@ -11,18 +11,18 @@ import Blender, struct, os, math
 
 # Header format:
 # uint32 - ident: 0x44334C4D (ML3D in litte-endian)
-# uint16 - version: 1
+# uint32 - version: 1
 # uint32 - vert_offset
 # uint32 - edge_offset
 # uint32 - face_offset
 # uint32 - vertlist_offset
 # uint32 - edgelist_offset
-# uint16 - num_verts
-# uint16 - num_edges
-# uint16 - num_faces
+# uint32 - num_verts
+# uint32 - num_edges
+# uint32 - num_faces
 # uint32 - num_vertlist
 # uint32 - num_edgelist
-header_struct = "<IHIIIIIHHHII"
+header_struct = "<IIIIIIIIIIII"
 header_size   = struct.calcsize(header_struct)
 
 # Vert: float x, y, z
@@ -30,17 +30,18 @@ vert_struct   = "<fff"
 vert_size     = struct.calcsize(vert_struct)
 
 # Edge: 
-# uint16 verts[2]
-# uint16 faces[2] -- 0xFFFF = null
-edge_struct   = "<HHHH"
+# uint32 verts[2]
+# uint32 faces[2] -- 0xFFFFFFFF = null
+edge_struct   = "<IIII"
 edge_size     = struct.calcsize(edge_struct)
 
 # Face:
 # uint32 vertlist
 # uint32 edgelist
-# uint8  num_edges_verts -- num_edges in high nibble, num_verts in low nibble
+# uint8  num_verts
+# uint8  num_edges
 #  int8  theta, phi -- normal data in spherical coords
-face_struct   = "<IIBbb"
+face_struct   = "<IIBBbb"
 face_size     = struct.calcsize(face_struct)
 
 vertlist_struct = "<H"
@@ -84,17 +85,17 @@ def export(path):
 	header['edge_offset'] = offset
 	for edge in mesh.edges:
 		faces = [
-			0xFFFF,
-			0xFFFF
+			0xFFFFFFFF,
+			0xFFFFFFFF
 		]
 		try:
 			faces[0] = edge_faces[edge.key][0]
 		except:
-			faces[0] = 0xFFFF
+			faces[0] = 0xFFFFFFFF
 		try:
 			faces[1] = edge_faces[edge.key][1]
 		except:
-			faces[1] = 0xFFFF
+			faces[1] = 0xFFFFFFFF
 		buf.write(struct.pack(edge_struct, edge.v1.index, edge.v2.index, faces[0], faces[1]))
 		offset += edge_size
 	
@@ -105,14 +106,9 @@ def export(path):
 	header['num_faces']   = len(mesh.faces)
 	header['face_offset'] = offset
 	for face in mesh.faces:
-		if len(face.edge_keys) > 0x0F or len(face.verts) > 0x0F:
-			buf.close()
-			Blender.Draw.PupMenu("Error: Face has too many edges/verts!%t|OK")
-			return
-		num_edges_verts = (len(face.edge_keys) << 4) | len(face.verts)
 		theta = int(127.0*math.acos(face.no.z)/math.pi)
 		phi   = int(127.0*math.atan2(face.no.y, face.no.x)/math.pi)
-		buf.write(struct.pack(face_struct, vertlist_idx, edgelist_idx, num_edges_verts, theta, phi))
+		buf.write(struct.pack(face_struct, vertlist_idx, edgelist_idx, len(face.verts), len(face.edge_keys), theta, phi))
 		offset += face_size
 		for vert in face.verts:
 			vertlist_buf += struct.pack(vertlist_struct, vert.index)

@@ -10,7 +10,7 @@ Tooltip: 'ml3d format model exporter'
 import Blender, struct, os, math
 
 # Header format:
-# uint32 - ident: 0x44334C4D (ML3D in litte-endian)
+# uint32 - ident: 0x4D4C3344 (ML3D in big-endian)
 # uint32 - version: 1
 # uint32 - vert_offset
 # uint32 - edge_offset
@@ -22,17 +22,17 @@ import Blender, struct, os, math
 # uint32 - num_faces
 # uint32 - num_vertlist
 # uint32 - num_edgelist
-header_struct = "<IIIIIIIIIIII"
+header_struct = ">IIIIIIIIIIII"
 header_size   = struct.calcsize(header_struct)
 
 # Vert: float x, y, z
-vert_struct   = "<fff"
+vert_struct   = ">fff"
 vert_size     = struct.calcsize(vert_struct)
 
 # Edge: 
-# uint32 verts[2]
-# uint32 faces[2] -- 0xFFFFFFFF = null
-edge_struct   = "<IIII"
+# uint16 verts[2]
+# uint16 faces[2] -- 0xFFFF = null
+edge_struct   = ">HHHH"
 edge_size     = struct.calcsize(edge_struct)
 
 # Face:
@@ -41,13 +41,13 @@ edge_size     = struct.calcsize(edge_struct)
 # uint8  num_verts
 # uint8  num_edges
 #  int8  theta, phi -- normal data in spherical coords
-face_struct   = "<IIBBbb"
+face_struct   = ">IIBBbb"
 face_size     = struct.calcsize(face_struct)
 
-vertlist_struct = "<H"
+vertlist_struct = ">H"
 vertlist_size   = struct.calcsize(vertlist_struct)
 
-edgelist_struct = "<H"
+edgelist_struct = ">H"
 edgelist_size   = struct.calcsize(edgelist_struct)
 
 def export(path):
@@ -70,7 +70,7 @@ def export(path):
 			edge_faces[edge_key].append(face_idx)
 	
 	header = {
-		'ident'   : 0x44334C4D,
+		'ident'   : 0x4D4C3344,
 		'version' : 1
 	}
 	
@@ -85,17 +85,17 @@ def export(path):
 	header['edge_offset'] = offset
 	for edge in mesh.edges:
 		faces = [
-			0xFFFFFFFF,
-			0xFFFFFFFF
+			0xFFFF,
+			0xFFFF
 		]
 		try:
 			faces[0] = edge_faces[edge.key][0]
 		except:
-			faces[0] = 0xFFFFFFFF
+			faces[0] = 0xFFFF
 		try:
 			faces[1] = edge_faces[edge.key][1]
 		except:
-			faces[1] = 0xFFFFFFFF
+			faces[1] = 0xFFFF
 		buf.write(struct.pack(edge_struct, edge.v1.index, edge.v2.index, faces[0], faces[1]))
 		offset += edge_size
 	

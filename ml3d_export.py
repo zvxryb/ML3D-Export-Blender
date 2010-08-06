@@ -9,6 +9,8 @@ Tooltip: 'ml3d format model exporter'
 
 import Blender, struct, os, math
 
+FLAGS_FGON = Blender.Mesh.EdgeFlags.FGON
+
 # Header format:
 # uint32 - ident: 0x4D4C3344 (ML3D in big-endian)
 # uint32 - version: 1
@@ -50,6 +52,63 @@ vertlist_size   = struct.calcsize(vertlist_struct)
 edgelist_struct = ">H"
 edgelist_size   = struct.calcsize(edgelist_struct)
 
+def build_ngon(edges, edge_faces, edge_indexes, faces, face, start = None):
+	faces.remove(face)
+
+	verts = [ vert.index for vert in face.verts ]
+	edge_keys = set( key for key in face.edge_keys if not edges[edge_indexes[key]].flag & FLAGS_FGON )
+	if start != None:
+		i = verts.index(start)
+		verts = verts[i:] + verts[:i]
+	for edge_key in face.edge_keys:
+		edge = edges[edge_indexes[edge_key]]
+		if edge.flag & FLAGS_FGON:
+			for i in range(len(verts)):
+				if verts[i] in edge.key:
+					for next_face in edge_faces[edge.key]:
+						if next_face in faces:
+							next_verts, next_edges = build_ngon(edges, edge_faces, edge_indexes, faces, next_face, verts[i])
+							verts = verts[:i+1] + next_verts + verts[i+1:]
+							edge_keys = edge_keys | next_edges
+	# simplify
+	i = 0
+	while i < len(verts):
+		j = len(verts) - 1
+		while j > i:
+			if verts[i] == verts[j]:
+				verts = verts[:i]+verts[j:]
+				break
+			j -= 1
+		i += 1
+	return verts, edge_keys
+
+def mesh_ngons_from_fgons(mesh):
+	ngon_edges = []
+	for edge in mesh.edges:
+		if not edge.flag & FLAGS_FGON:
+			ngon_edges.append(edge)
+
+	edge_faces   = {}
+	edge_indexes = {}
+	for edge_idx, edge in zip(range(len(mesh.edges)), mesh.edges):
+		edge_faces[edge.key]   = []
+		edge_indexes[edge.key] = edge_idx
+	for face in mesh.faces:
+		for edge_key in face.edge_keys:
+			edge_faces[edge_key].append(face)
+
+	faces = [ face for face in mesh.faces ]
+	edges = [ edge for edge in mesh.edges ]
+	ngons = []
+	while len(faces) > 0:
+		verts, edge_keys = build_ngon(edges, edge_faces, edge_indexes, faces, faces[0], None)
+		ngons.append({
+			"verts":     verts,
+			"normal":    face.no,
+			"edge_keys": edge_keys
+		})
+	return ngons, ngon_edges
+
 def export(path):
 	buf = file(path, 'w')
 	buf.write("\0"*header_size)
@@ -60,14 +119,16 @@ def export(path):
 		return
 	mesh = objects[0].getData(mesh=True)
 
+	ngons, ngon_edges = mesh_ngons_from_fgons(mesh)
+
 	edge_faces   = {}
 	edge_indexes = {}
-	for edge_idx, edge in zip(range(len(mesh.edges)), mesh.edges):
+	for edge_idx, edge in zip(range(len(ngon_edges)), ngon_edges):
 		edge_faces[edge.key]   = []
 		edge_indexes[edge.key] = edge_idx
-	for face_idx, face in zip(range(len(mesh.faces)), mesh.faces):
-		for edge_key in face.edge_keys:
-			edge_faces[edge_key].append(face_idx)
+	for ngon_idx, ngon in zip(range(len(ngons)), ngons):
+		for edge_key in ngon["edge_keys"]:
+			edge_faces[edge_key].append(ngon_idx)
 	
 	header = {
 		'ident'   : 0x4D4C3344,
@@ -81,9 +142,9 @@ def export(path):
 		buf.write(struct.pack(vert_struct, vert.co.x, vert.co.y, vert.co.z))
 		offset += vert_size
 	
-	header['num_edges']   = len(mesh.edges)
+	header['num_edges']   = len(ngon_edges)
 	header['edge_offset'] = offset
-	for edge in mesh.edges:
+	for edge in ngon_edges:
 		faces = [
 			0xFFFF,
 			0xFFFF
@@ -103,17 +164,18 @@ def export(path):
 	edgelist_buf = ""
 	vertlist_idx = 0
 	edgelist_idx = 0
-	header['num_faces']   = len(mesh.faces)
+	header['num_faces']   = len(ngons)
 	header['face_offset'] = offset
-	for face in mesh.faces:
-		theta = int(127.0*math.acos(face.no.z)/math.pi)
-		phi   = int(127.0*math.atan2(face.no.y, face.no.x)/math.pi)
-		buf.write(struct.pack(face_struct, vertlist_idx, edgelist_idx, len(face.verts), len(face.edge_keys), theta, phi))
+	for ngon in ngons:
+		normal = ngon["normal"]
+		theta  = int(127.0*math.acos(normal.z)/math.pi)
+		phi    = int(127.0*math.atan2(normal.y, normal.x)/math.pi)
+		buf.write(struct.pack(face_struct, vertlist_idx, edgelist_idx, len(ngon["verts"]), len(ngon["edge_keys"]), theta, phi))
 		offset += face_size
-		for vert in face.verts:
-			vertlist_buf += struct.pack(vertlist_struct, vert.index)
+		for vert in ngon["verts"]:
+			vertlist_buf += struct.pack(vertlist_struct, vert)
 			vertlist_idx += 1
-		for edge_key in face.edge_keys:
+		for edge_key in ngon["edge_keys"]:
 			edgelist_buf += struct.pack(edgelist_struct, edge_indexes[edge_key])
 			edgelist_idx += 1
 	

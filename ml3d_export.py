@@ -101,7 +101,8 @@ def mesh_ngons_from_fgons(mesh):
 	edges = [ edge for edge in mesh.edges ]
 	ngons = []
 	while len(faces) > 0:
-		verts, edge_keys = build_ngon(edges, edge_faces, edge_indexes, faces, faces[0], None)
+		face = faces[0]
+		verts, edge_keys = build_ngon(edges, edge_faces, edge_indexes, faces, face, None)
 		ngons.append({
 			"verts":     verts,
 			"normal":    face.no,

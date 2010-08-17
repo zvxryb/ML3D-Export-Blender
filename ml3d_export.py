@@ -38,7 +38,7 @@ edge_struct   = ">HHHH"
 edge_size     = struct.calcsize(edge_struct)
 
 # Face:
-# uint32 vertlist
+# uint32 vertlist -- verts must be in COUNTER-CLOCKWISE order
 # uint32 edgelist
 # uint8  num_verts
 # uint8  num_edges
